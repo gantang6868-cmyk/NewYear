@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>新年快乐！</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            touch-action: manipulation;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+        }
+        body {
+            background: #0a0a2e;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            font-family: 'Noto Sans SC', monospace;
+            cursor: crosshair;
+        }
+        #gameCanvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .btn-container {
+            position: fixed;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            width: 90%;
+            max-width: 400px;
+        }
+        .btn-container.show { display: flex; }
+        .btn-primary {
+            padding: 16px 40px;
+            font-size: clamp(16px, 4vw, 20px);
+            font-family: 'Noto Sans SC', monospace;
+            background: linear-gradient(135deg, #ffd700, #ffaa00);
+            color: #333;
+            border: 4px solid #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), 4px 4px 0 #000;
+            animation: glow 1.5s ease-in-out infinite alternate;
+            min-height: 50px;
+            width: 100%;
+            touch-action: manipulation;
+        }
+        @keyframes glow {
+            from { box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), 4px 4px 0 #000; }
+            to { box-shadow: 0 0 30px rgba(255, 215, 0, 0.9), 4px 4px 0 #000; }
+        }
+        .btn-primary:hover, .btn-primary:active { background: linear-gradient(135deg, #ffea00, #ffcc00); }
+        .btn-secondary {
+            padding: 12px 30px;
+            font-size: clamp(14px, 3.5vw, 16px);
+            font-family: monospace;
+            background: #666;
+            color: white;
+            border: 3px solid #999;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 3px 3px 0 #000;
+            min-height: 44px;
+            width: 80%;
+            touch-action: manipulation;
+        }
+        .btn-secondary:hover, .btn-secondary:active { background: #888; }
+        .hint {
+            position: fixed;
+            bottom: calc(max(20px, env(safe-area-inset-bottom)) + 130px);
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ffd700;
+            font-size: clamp(14px, 3.5vw, 16px);
+            font-family: 'Noto Sans SC', monospace;
+            text-shadow: 0 0 10px #ffd700;
+            opacity: 0;
+            transition: opacity 0.5s;
+            z-index: 100;
+            text-align: center;
+            width: 90%;
+            padding: 0 10px;
+        }
+        .hint.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div class="hint" id="hint"></div>
+    <div class="btn-container" id="btnContainer">
+        <button class="btn-primary" id="playTogetherBtn">和小甘一起放烟花</button>
+        <button class="btn-secondary" id="restartBtn">再看一次</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const btnContainer = document.getElementById('btnContainer');
+        const playTogetherBtn = document.getElementById('playTogetherBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const hintEl = document.getElementById('hint');
+
+        const PIXEL = 4;
+
+        const blessings = [
+            '万事如意', '心想事成', '龙马精神', '吉祥如意',
+            '财源广进', '步步高升', '花开富贵', '金玉满堂',
+            '福星高照', '鹏程万里', '一帆风顺', '大吉大利',
+            '恭喜发财', '年年有余', '阖家欢乐', '幸福美满',
+            '身体健康', '学业有成', '事业顺利', '平安喜乐'
+        ];
+
+        // 装饰图案类型
+        const decorations = ['flower', 'cloud', 'thumb', 'heart', 'star'];
+
+        let state = 'riding';
+        let stateTimer = 0;
+        let waveFrame = 0;
+        let fireworkY = 0;
+        let fireworkX = 0;
+        let particles = [];
+        let textParticles = [];
+        let backgroundStars = [];
+        let clickFireworks = [];
+        let dustParticles = [];
+        let decorationFireworks = [];
+
+        let riderX = -100;
+        let horseFrame = 0;
+        let riderScale = 0.5;
+
+        // 用户角色变量
+        let userRiderX = 0;
+        let userHorseFrame = 0;
+        let userScale = 0.5;
+        let userCharX = 0;
+        let userCharY = 0;
+
+        // 小甘位置
+        let ganCharX = 0;
+        let ganCharY = 0;
+
+        function initStars() {
+            backgroundStars = [];
+            for (let i = 0; i < 150; i++) {
+                backgroundStars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height * 0.8,
+                    size: Math.random() * 2 + 1,
+                    twinkle: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initStars();
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawPixel(x, y, color, size = PIXEL) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        function drawScaledPixel(x, y, color, scale) {
+            const size = PIXEL * scale;
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        // 绘制棕马
+        function drawHorse(baseX, baseY, frame, scale = 1) {
+            const p = PIXEL * scale;
+            const horseColor = '#8B4513';
+            const horseDark = '#5D3A1A';
+            const maneColor = '#2d2d2d';
+            const legOffset1 = Math.sin(frame) * 3 * scale;
+            const legOffset2 = Math.sin(frame + Math.PI) * 3 * scale;
+
+            for (let i = 0; i < 12; i++) {
+                for (let j = 0; j < 6; j++) {
+                    drawScaledPixel(baseX + i*p, baseY - 8*p + j*p, horseColor, scale);
+                }
+            }
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 5; j++) {
+                    drawScaledPixel(baseX + 10*p + i*p, baseY - 12*p + j*p, horseColor, scale);
+                }
+            }
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 4; j++) {
+                    drawScaledPixel(baseX + 13*p + i*p, baseY - 14*p + j*p, horseColor, scale);
+                }
+            }
+            drawScaledPixel(baseX + 17*p, baseY - 11*p, horseDark, scale);
+            drawScaledPixel(baseX + 17*p, baseY - 12*p, horseDark, scale);
+            drawScaledPixel(baseX + 15*p, baseY - 13*p, '#000', scale);
+            drawScaledPixel(baseX + 14*p, baseY - 15*p, horseColor, scale);
+            drawScaledPixel(baseX + 14*p, baseY - 16*p, horseColor, scale);
+            for (let i = 0; i < 6; i++) {
+                drawScaledPixel(baseX + 10*p + i*p, baseY - 13*p - i*p*0.3, maneColor, scale);
+                drawScaledPixel(baseX + 11*p + i*p, baseY - 13*p - i*p*0.3, maneColor, scale);
+            }
+            for (let i = 0; i < 5; i++) {
+                const tailWave = Math.sin(frame * 0.5 + i * 0.3) * 2 * scale;
+                drawScaledPixel(baseX - 2*p + tailWave, baseY - 6*p + i*p, maneColor, scale);
+                drawScaledPixel(baseX - 3*p + tailWave, baseY - 5*p + i*p, maneColor, scale);
+            }
+            drawScaledPixel(baseX + 9*p, baseY - 2*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 9*p, baseY - 1*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 9*p, baseY + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 9*p, baseY + 1*p + legOffset1, '#3d3d3d', scale);
+            drawScaledPixel(baseX + 11*p, baseY - 2*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 11*p, baseY - 1*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 11*p, baseY + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 11*p, baseY + 1*p + legOffset2, '#3d3d3d', scale);
+            drawScaledPixel(baseX + 2*p, baseY - 2*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 2*p, baseY - 1*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 2*p, baseY + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + 2*p, baseY + 1*p + legOffset2, '#3d3d3d', scale);
+            drawScaledPixel(baseX + 4*p, baseY - 2*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 4*p, baseY - 1*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 4*p, baseY + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + 4*p, baseY + 1*p + legOffset1, '#3d3d3d', scale);
+        }
+
+        // 绘制白马
+        function drawWhiteHorse(baseX, baseY, frame, scale = 1, facingLeft = true) {
+            const p = PIXEL * scale;
+            const horseColor = '#f5f5f5';
+            const horseDark = '#dcdcdc';
+            const maneColor = '#e8e8e8';
+            const legOffset1 = Math.sin(frame) * 3 * scale;
+            const legOffset2 = Math.sin(frame + Math.PI) * 3 * scale;
+            const dir = facingLeft ? 1 : -1;
+            const offsetX = facingLeft ? 0 : -18 * p;
+
+            for (let i = 0; i < 12; i++) {
+                for (let j = 0; j < 6; j++) {
+                    drawScaledPixel(baseX + offsetX + i*p*dir, baseY - 8*p + j*p, horseColor, scale);
+                }
+            }
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 5; j++) {
+                    drawScaledPixel(baseX + offsetX + (10 + i)*p*dir, baseY - 12*p + j*p, horseColor, scale);
+                }
+            }
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 4; j++) {
+                    drawScaledPixel(baseX + offsetX + (13 + i)*p*dir, baseY - 14*p + j*p, horseColor, scale);
+                }
+            }
+            drawScaledPixel(baseX + offsetX + 17*p*dir, baseY - 11*p, '#ffcccc', scale);
+            drawScaledPixel(baseX + offsetX + 17*p*dir, baseY - 12*p, '#ffcccc', scale);
+            drawScaledPixel(baseX + offsetX + 15*p*dir, baseY - 13*p, '#333', scale);
+            drawScaledPixel(baseX + offsetX + 14*p*dir, baseY - 15*p, horseColor, scale);
+            drawScaledPixel(baseX + offsetX + 14*p*dir, baseY - 16*p, horseColor, scale);
+            for (let i = 0; i < 6; i++) {
+                drawScaledPixel(baseX + offsetX + (10 + i)*p*dir, baseY - 13*p - i*p*0.3, maneColor, scale);
+            }
+            for (let i = 0; i < 5; i++) {
+                const tailWave = Math.sin(frame * 0.5 + i * 0.3) * 2 * scale * dir;
+                drawScaledPixel(baseX + offsetX - 2*p*dir + tailWave, baseY - 6*p + i*p, maneColor, scale);
+            }
+            drawScaledPixel(baseX + offsetX + 9*p*dir, baseY - 2*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 9*p*dir, baseY - 1*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 9*p*dir, baseY + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 9*p*dir, baseY + 1*p + legOffset1, '#666', scale);
+            drawScaledPixel(baseX + offsetX + 11*p*dir, baseY - 2*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 11*p*dir, baseY - 1*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 11*p*dir, baseY + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 11*p*dir, baseY + 1*p + legOffset2, '#666', scale);
+            drawScaledPixel(baseX + offsetX + 2*p*dir, baseY - 2*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 2*p*dir, baseY - 1*p + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 2*p*dir, baseY + legOffset2, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 2*p*dir, baseY + 1*p + legOffset2, '#666', scale);
+            drawScaledPixel(baseX + offsetX + 4*p*dir, baseY - 2*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 4*p*dir, baseY - 1*p + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 4*p*dir, baseY + legOffset1, horseDark, scale);
+            drawScaledPixel(baseX + offsetX + 4*p*dir, baseY + 1*p + legOffset1, '#666', scale);
+        }
+
+        // 绘制骑马的小甘
+        function drawRider(baseX, baseY, scale = 1) {
+            const p = PIXEL * scale;
+            const hairColor = '#1a1a1a';
+            const skinColor = '#ffdbac';
+            const jacketColor = '#e63946';
+            const jacketDark = '#b82e3a';
+            const tailWave = Math.sin(horseFrame * 0.3) * 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                drawScaledPixel(baseX + 8*p + tailWave + i*p*0.3, baseY - 16*p + i*p, hairColor, scale);
+            }
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p, baseY - 20*p, hairColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 19*p, hairColor, scale);
+            for (let i = 0; i < 9; i++) drawScaledPixel(baseX + i*p, baseY - 18*p, hairColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 17*p, i < 2 || i > 6 ? hairColor : skinColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 16*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p, baseY - 16*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 5*p, baseY - 16*p, '#2d2d2d', scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 15*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p, baseY - 15*p, '#ffb6c1', scale);
+            drawScaledPixel(baseX + 6*p, baseY - 15*p, '#ffb6c1', scale);
+            drawScaledPixel(baseX + 3*p, baseY - 14*p, '#e57373', scale);
+            drawScaledPixel(baseX + 4*p, baseY - 14*p, '#e57373', scale);
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p, baseY - 14*p, skinColor, scale);
+            for (let row = 0; row < 6; row++) {
+                for (let col = 0; col < 8; col++) {
+                    let color = jacketColor;
+                    if (col < 1 || col > 6) color = jacketDark;
+                    drawScaledPixel(baseX + col*p, baseY - 13*p + row*p, color, scale);
+                }
+            }
+            drawScaledPixel(baseX + 3*p, baseY - 12*p, '#ffd700', scale);
+            drawScaledPixel(baseX + 3*p, baseY - 10*p, '#ffd700', scale);
+            drawScaledPixel(baseX - 1*p, baseY - 11*p, jacketColor, scale);
+            drawScaledPixel(baseX - 2*p, baseY - 10*p, jacketColor, scale);
+            drawScaledPixel(baseX - 2*p, baseY - 9*p, skinColor, scale);
+            drawScaledPixel(baseX + 8*p, baseY - 11*p, jacketColor, scale);
+            drawScaledPixel(baseX + 9*p, baseY - 10*p, jacketColor, scale);
+            drawScaledPixel(baseX + 9*p, baseY - 9*p, skinColor, scale);
+            drawScaledPixel(baseX + 1*p, baseY - 7*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 0*p, baseY - 6*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 0*p, baseY - 5*p, '#8b4513', scale);
+            drawScaledPixel(baseX + 6*p, baseY - 7*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 7*p, baseY - 6*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 7*p, baseY - 5*p, '#8b4513', scale);
+        }
+
+        // 绘制骑白马的用户（黄色短袄，性别中立）
+        function drawUserRider(baseX, baseY, scale = 1, facingLeft = true) {
+            const p = PIXEL * scale;
+            const hairColor = '#4a3728';
+            const skinColor = '#ffdbac';
+            const jacketColor = '#ffd700';
+            const jacketDark = '#daa520';
+            const dir = facingLeft ? 1 : -1;
+
+            // 短发 - 和小甘一样的结构
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p*dir, baseY - 20*p, hairColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p*dir, baseY - 19*p, hairColor, scale);
+            for (let i = 0; i < 9; i++) drawScaledPixel(baseX + i*p*dir, baseY - 18*p, hairColor, scale);
+            // 脸部 - 和小甘一样的宽度和结构
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p*dir, baseY - 17*p, i < 2 || i > 6 ? hairColor : skinColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p*dir, baseY - 16*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p*dir, baseY - 16*p, '#2d2d2d', scale); // 眼睛
+            drawScaledPixel(baseX + 5*p*dir, baseY - 16*p, '#2d2d2d', scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p*dir, baseY - 15*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p*dir, baseY - 15*p, '#ffb6c1', scale); // 腮红
+            drawScaledPixel(baseX + 6*p*dir, baseY - 15*p, '#ffb6c1', scale);
+            drawScaledPixel(baseX + 3*p*dir, baseY - 14*p, '#e57373', scale); // 嘴巴
+            drawScaledPixel(baseX + 4*p*dir, baseY - 14*p, '#e57373', scale);
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p*dir, baseY - 14*p, skinColor, scale); // 下巴
+
+            // 黄色短袄
+            for (let row = 0; row < 6; row++) {
+                for (let col = 0; col < 8; col++) {
+                    let color = jacketColor;
+                    if (col < 1 || col > 6) color = jacketDark;
+                    drawScaledPixel(baseX + col*p*dir, baseY - 13*p + row*p, color, scale);
+                }
+            }
+            // 领口
+            drawScaledPixel(baseX + 3*p*dir, baseY - 13*p, '#c41e3a', scale);
+            drawScaledPixel(baseX + 4*p*dir, baseY - 13*p, '#c41e3a', scale);
+
+            // 手臂
+            drawScaledPixel(baseX - 1*p*dir, baseY - 11*p, jacketColor, scale);
+            drawScaledPixel(baseX - 2*p*dir, baseY - 10*p, jacketColor, scale);
+            drawScaledPixel(baseX - 2*p*dir, baseY - 9*p, skinColor, scale);
+            drawScaledPixel(baseX + 8*p*dir, baseY - 11*p, jacketColor, scale);
+            drawScaledPixel(baseX + 9*p*dir, baseY - 10*p, jacketColor, scale);
+            drawScaledPixel(baseX + 9*p*dir, baseY - 9*p, skinColor, scale);
+
+            // 腿
+            drawScaledPixel(baseX + 1*p*dir, baseY - 7*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 0*p*dir, baseY - 6*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 0*p*dir, baseY - 5*p, '#5d4e37', scale);
+            drawScaledPixel(baseX + 6*p*dir, baseY - 7*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 7*p*dir, baseY - 6*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 7*p*dir, baseY - 5*p, '#5d4e37', scale);
+        }
+
+        // 绘制站立的小甘（带仙女棒）
+        function drawCharacter(baseX, baseY, waveOffset = 0) {
+            const p = PIXEL;
+            const hairColor = '#1a1a1a';
+            const skinColor = '#ffdbac';
+            const jacketColor = '#e63946';
+            const jacketDark = '#b82e3a';
+
+            for (let i = 0; i < 8; i++) {
+                drawPixel(baseX + 12*p, baseY - 20*p + i*p, hairColor);
+                drawPixel(baseX + 13*p, baseY - 18*p + i*p, hairColor);
+            }
+            for (let i = 2; i < 8; i++) drawPixel(baseX + i*p, baseY - 24*p, hairColor);
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 23*p, hairColor);
+            for (let i = 0; i < 10; i++) drawPixel(baseX + i*p, baseY - 22*p, hairColor);
+            for (let i = 0; i < 10; i++) drawPixel(baseX + i*p, baseY - 21*p, hairColor);
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 20*p, i < 2 || i > 7 ? hairColor : skinColor);
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 19*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 3*p, baseY - 19*p, '#2d2d2d');
+            drawPixel(baseX + 6*p, baseY - 19*p, '#2d2d2d');
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 18*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 2*p, baseY - 18*p, '#ffb6c1');
+            drawPixel(baseX + 7*p, baseY - 18*p, '#ffb6c1');
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 17*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 4*p, baseY - 17*p, '#e57373');
+            drawPixel(baseX + 5*p, baseY - 17*p, '#e57373');
+            for (let i = 2; i < 8; i++) drawPixel(baseX + i*p, baseY - 16*p, skinColor);
+            drawPixel(baseX + 4*p, baseY - 15*p, skinColor);
+            drawPixel(baseX + 5*p, baseY - 15*p, skinColor);
+
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 12; col++) {
+                    let color = jacketColor;
+                    if (col < 2 || col > 9) color = jacketDark;
+                    if (row > 5 && (col < 4 || col > 7)) continue;
+                    drawPixel(baseX + (col-1)*p, baseY - 14*p + row*p, color);
+                }
+            }
+            drawPixel(baseX + 4*p, baseY - 14*p, '#ffd700');
+            drawPixel(baseX + 4*p, baseY - 12*p, '#ffd700');
+            drawPixel(baseX + 4*p, baseY - 10*p, '#ffd700');
+
+            const armY = Math.sin(waveOffset) * 3;
+            drawPixel(baseX - 2*p, baseY - 12*p, jacketColor);
+            drawPixel(baseX - 3*p, baseY - 11*p, jacketColor);
+            drawPixel(baseX - 3*p, baseY - 10*p, skinColor);
+
+            const wandArmX = baseX + 10*p;
+            const wandArmY = baseY - 14*p + armY;
+            drawPixel(wandArmX, wandArmY, jacketColor);
+            drawPixel(wandArmX + p, wandArmY - p, jacketColor);
+            drawPixel(wandArmX + 2*p, wandArmY - 2*p, skinColor);
+
+            const wandX = wandArmX + 3*p;
+            const wandY = wandArmY - 3*p + armY;
+            drawPixel(wandX, wandY, '#8b4513');
+            drawPixel(wandX, wandY - p, '#8b4513');
+            drawPixel(wandX, wandY - 2*p, '#8b4513');
+            drawPixel(wandX, wandY - 4*p, '#ffd700');
+            drawPixel(wandX - p, wandY - 3*p, '#ffd700');
+            drawPixel(wandX + p, wandY - 3*p, '#ffd700');
+            drawPixel(wandX, wandY - 3*p, '#fff');
+
+            if (state === 'wave' || state === 'idle' || state === 'text' || state === 'playTogether') {
+                const sparkle = Date.now() % 300 < 150;
+                if (sparkle) {
+                    drawPixel(wandX - 2*p, wandY - 5*p, '#fff');
+                    drawPixel(wandX + 2*p, wandY - 4*p, '#fff');
+                    drawPixel(wandX, wandY - 6*p, '#ffff00');
+                }
+            }
+
+            drawPixel(baseX + 3*p, baseY - 5*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 4*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 3*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 2*p, '#8b4513');
+            drawPixel(baseX + 6*p, baseY - 5*p, '#2d2d2d');
+            drawPixel(baseX + 6*p, baseY - 4*p, '#2d2d2d');
+            drawPixel(baseX + 6*p, baseY - 3*p, '#2d2d2d');
+            drawPixel(baseX + 6*p, baseY - 2*p, '#8b4513');
+
+            return { wandX: wandX, wandY: wandY - 4*p };
+        }
+
+        // 绘制站立的用户（黄色短袄，带烟花筒）
+        function drawUserCharacter(baseX, baseY, aimAngle = 0) {
+            const p = PIXEL;
+            const hairColor = '#4a3728';
+            const skinColor = '#ffdbac';
+            const jacketColor = '#ffd700';
+            const jacketDark = '#daa520';
+
+            // 短发 - 和小甘一样的结构
+            for (let i = 2; i < 8; i++) drawPixel(baseX + i*p, baseY - 24*p, hairColor);
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 23*p, hairColor);
+            for (let i = 0; i < 10; i++) drawPixel(baseX + i*p, baseY - 22*p, hairColor);
+            for (let i = 0; i < 10; i++) drawPixel(baseX + i*p, baseY - 21*p, hairColor);
+
+            // 脸 - 和小甘一样的宽度和结构
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 20*p, i < 2 || i > 7 ? hairColor : skinColor);
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 19*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 3*p, baseY - 19*p, '#2d2d2d'); // 眼睛
+            drawPixel(baseX + 6*p, baseY - 19*p, '#2d2d2d');
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 18*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 2*p, baseY - 18*p, '#ffb6c1'); // 腮红
+            drawPixel(baseX + 7*p, baseY - 18*p, '#ffb6c1');
+            for (let i = 1; i < 9; i++) drawPixel(baseX + i*p, baseY - 17*p, i < 1 || i > 8 ? hairColor : skinColor);
+            drawPixel(baseX + 4*p, baseY - 17*p, '#e57373'); // 嘴巴
+            drawPixel(baseX + 5*p, baseY - 17*p, '#e57373');
+            for (let i = 2; i < 8; i++) drawPixel(baseX + i*p, baseY - 16*p, skinColor); // 下巴
+            drawPixel(baseX + 4*p, baseY - 15*p, skinColor); // 脖子
+            drawPixel(baseX + 5*p, baseY - 15*p, skinColor);
+
+            // 身体
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 10; col++) {
+                    let color = jacketColor;
+                    if (col < 1 || col > 8) color = jacketDark;
+                    if (row > 5 && (col < 3 || col > 6)) continue;
+                    drawPixel(baseX + col*p, baseY - 14*p + row*p, color);
+                }
+            }
+            drawPixel(baseX + 4*p, baseY - 14*p, '#c41e3a');
+            drawPixel(baseX + 5*p, baseY - 14*p, '#c41e3a');
+
+            // 左手臂
+            drawPixel(baseX - 1*p, baseY - 12*p, jacketColor);
+            drawPixel(baseX - 2*p, baseY - 11*p, jacketColor);
+            drawPixel(baseX - 2*p, baseY - 10*p, skinColor);
+
+            // 右手臂（持烟花筒）
+            const tubeArmX = baseX + 9*p;
+            const tubeArmY = baseY - 12*p;
+            drawPixel(tubeArmX, tubeArmY, jacketColor);
+            drawPixel(tubeArmX + p, tubeArmY - p, jacketColor);
+            drawPixel(tubeArmX + 2*p, tubeArmY - 2*p, skinColor);
+
+            // 烟花筒
+            const tubeX = tubeArmX + 3*p;
+            const tubeY = tubeArmY - 3*p;
+            ctx.fillStyle = '#c41e3a';
+            ctx.fillRect(tubeX, tubeY - 3*p, p*2, p*5);
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(tubeX, tubeY - 4*p, p*2, p);
+            ctx.fillStyle = '#228b22';
+            ctx.fillRect(tubeX - p*0.5, tubeY + 2*p, p*3, p);
+
+            // 腿
+            drawPixel(baseX + 3*p, baseY - 5*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 4*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 3*p, '#2d2d2d');
+            drawPixel(baseX + 3*p, baseY - 2*p, '#5d4e37');
+            drawPixel(baseX + 5*p, baseY - 5*p, '#2d2d2d');
+            drawPixel(baseX + 5*p, baseY - 4*p, '#2d2d2d');
+            drawPixel(baseX + 5*p, baseY - 3*p, '#2d2d2d');
+            drawPixel(baseX + 5*p, baseY - 2*p, '#5d4e37');
+
+            return { tubeX: tubeX + p, tubeY: tubeY - 4*p };
+        }
+
+        // 绘制举着白马跑步的用户
+        function drawUserRunningWithHorse(baseX, baseY, runFrame, scale = 1) {
+            const p = PIXEL * scale;
+            const hairColor = '#4a3728';
+            const skinColor = '#ffdbac';
+            const jacketColor = '#ffd700';
+            const jacketDark = '#daa520';
+
+            // 跑步时的腿部动画
+            const legOffset = Math.sin(runFrame) * 4 * scale;
+
+            // 先画马（在人后面，这样手会在马身上）
+            // 正常大小的白马，被举在头顶！
+            const horseX = baseX - 15*p;
+            const horseY = baseY - 45*p;
+            const horseLegWave = Math.sin(runFrame * 2) * 3 * scale;
+
+            // 用正常的drawWhiteHorse但是位置在头顶，腿悬空摆动
+            const hp = PIXEL * scale;
+            const horseColor = '#f5f5f5';
+            const horseDark = '#dcdcdc';
+            const maneColor = '#e8e8e8';
+
+            // 马身体
+            for (let i = 0; i < 12; i++) {
+                for (let j = 0; j < 6; j++) {
+                    drawScaledPixel(horseX + i*hp, horseY - 8*hp + j*hp, horseColor, scale);
+                }
+            }
+            // 马脖子
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 5; j++) {
+                    drawScaledPixel(horseX + 10*hp + i*hp, horseY - 12*hp + j*hp, horseColor, scale);
+                }
+            }
+            // 马头
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 4; j++) {
+                    drawScaledPixel(horseX + 13*hp + i*hp, horseY - 14*hp + j*hp, horseColor, scale);
+                }
+            }
+            // 马鼻子
+            drawScaledPixel(horseX + 17*hp, horseY - 11*hp, '#ffcccc', scale);
+            drawScaledPixel(horseX + 17*hp, horseY - 12*hp, '#ffcccc', scale);
+            // 马眼睛
+            drawScaledPixel(horseX + 15*hp, horseY - 13*hp, '#333', scale);
+            // 马耳朵
+            drawScaledPixel(horseX + 14*hp, horseY - 15*hp, horseColor, scale);
+            drawScaledPixel(horseX + 14*hp, horseY - 16*hp, horseColor, scale);
+            // 马鬃毛
+            for (let i = 0; i < 6; i++) {
+                drawScaledPixel(horseX + 10*hp + i*hp, horseY - 13*hp - i*hp*0.3, maneColor, scale);
+            }
+            // 马尾（摆动）
+            const tailWave = Math.sin(runFrame) * 3 * scale;
+            for (let i = 0; i < 5; i++) {
+                drawScaledPixel(horseX - 2*hp + tailWave, horseY - 6*hp + i*hp, maneColor, scale);
+                drawScaledPixel(horseX - 3*hp + tailWave, horseY - 5*hp + i*hp, maneColor, scale);
+            }
+            // 马腿（悬空乱蹬！）
+            drawScaledPixel(horseX + 9*hp, horseY - 2*hp + horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 9*hp, horseY - 1*hp + horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 9*hp, horseY + horseLegWave, '#666', scale);
+            drawScaledPixel(horseX + 11*hp, horseY - 2*hp - horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 11*hp, horseY - 1*hp - horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 11*hp, horseY - horseLegWave, '#666', scale);
+            drawScaledPixel(horseX + 2*hp, horseY - 2*hp - horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 2*hp, horseY - 1*hp - horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 2*hp, horseY - horseLegWave, '#666', scale);
+            drawScaledPixel(horseX + 4*hp, horseY - 2*hp + horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 4*hp, horseY - 1*hp + horseLegWave, horseDark, scale);
+            drawScaledPixel(horseX + 4*hp, horseY + horseLegWave, '#666', scale);
+
+            // 再画人（在马前面）
+            // 短发 - 和小甘一样的结构
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p, baseY - 28*p, hairColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 27*p, hairColor, scale);
+            for (let i = 0; i < 9; i++) drawScaledPixel(baseX + i*p, baseY - 26*p, hairColor, scale);
+            // 脸部
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 25*p, i < 2 || i > 6 ? hairColor : skinColor, scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 24*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p, baseY - 24*p, '#2d2d2d', scale); // 眼睛
+            drawScaledPixel(baseX + 5*p, baseY - 24*p, '#2d2d2d', scale);
+            for (let i = 1; i < 8; i++) drawScaledPixel(baseX + i*p, baseY - 23*p, skinColor, scale);
+            drawScaledPixel(baseX + 2*p, baseY - 23*p, '#ffb6c1', scale); // 腮红
+            drawScaledPixel(baseX + 6*p, baseY - 23*p, '#ffb6c1', scale);
+            drawScaledPixel(baseX + 3*p, baseY - 22*p, '#e57373', scale); // 嘴巴
+            drawScaledPixel(baseX + 4*p, baseY - 22*p, '#e57373', scale);
+            for (let i = 2; i < 7; i++) drawScaledPixel(baseX + i*p, baseY - 22*p, skinColor, scale);
+
+            // 身体
+            for (let row = 0; row < 6; row++) {
+                for (let col = 0; col < 8; col++) {
+                    let color = jacketColor;
+                    if (col < 1 || col > 6) color = jacketDark;
+                    drawScaledPixel(baseX + col*p, baseY - 21*p + row*p, color, scale);
+                }
+            }
+            // 领口
+            drawScaledPixel(baseX + 3*p, baseY - 21*p, '#c41e3a', scale);
+            drawScaledPixel(baseX + 4*p, baseY - 21*p, '#c41e3a', scale);
+
+            // 双手高举托住马肚子
+            // 左手臂（伸到马肚子下面）
+            drawScaledPixel(baseX + 0*p, baseY - 21*p, jacketColor, scale);
+            drawScaledPixel(baseX - 1*p, baseY - 22*p, jacketColor, scale);
+            drawScaledPixel(baseX - 2*p, baseY - 23*p, jacketColor, scale);
+            drawScaledPixel(baseX - 3*p, baseY - 24*p, jacketColor, scale);
+            drawScaledPixel(baseX - 4*p, baseY - 25*p, jacketColor, scale);
+            drawScaledPixel(baseX - 5*p, baseY - 26*p, jacketColor, scale);
+            drawScaledPixel(baseX - 6*p, baseY - 27*p, jacketColor, scale);
+            drawScaledPixel(baseX - 7*p, baseY - 28*p, jacketColor, scale);
+            drawScaledPixel(baseX - 7*p, baseY - 29*p, skinColor, scale); // 手
+            drawScaledPixel(baseX - 6*p, baseY - 29*p, skinColor, scale);
+            // 右手臂
+            drawScaledPixel(baseX + 7*p, baseY - 21*p, jacketColor, scale);
+            drawScaledPixel(baseX + 8*p, baseY - 22*p, jacketColor, scale);
+            drawScaledPixel(baseX + 9*p, baseY - 23*p, jacketColor, scale);
+            drawScaledPixel(baseX + 10*p, baseY - 24*p, jacketColor, scale);
+            drawScaledPixel(baseX + 11*p, baseY - 25*p, jacketColor, scale);
+            drawScaledPixel(baseX + 12*p, baseY - 26*p, jacketColor, scale);
+            drawScaledPixel(baseX + 13*p, baseY - 27*p, jacketColor, scale);
+            drawScaledPixel(baseX + 14*p, baseY - 28*p, jacketColor, scale);
+            drawScaledPixel(baseX + 14*p, baseY - 29*p, skinColor, scale); // 手
+            drawScaledPixel(baseX + 13*p, baseY - 29*p, skinColor, scale);
+
+            // 跑步的腿
+            // 左腿
+            drawScaledPixel(baseX + 2*p, baseY - 15*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 2*p + legOffset, baseY - 14*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 2*p + legOffset, baseY - 13*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 2*p + legOffset, baseY - 12*p, '#5d4e37', scale);
+            // 右腿
+            drawScaledPixel(baseX + 5*p, baseY - 15*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 5*p - legOffset, baseY - 14*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 5*p - legOffset, baseY - 13*p, '#2d2d2d', scale);
+            drawScaledPixel(baseX + 5*p - legOffset, baseY - 12*p, '#5d4e37', scale);
+        }
+
+        // 绘制对话框
+        function drawSpeechBubble(x, y, text) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 3;
+            const padding = 15;
+            const fontSize = Math.min(18, canvas.width / 35);
+            ctx.font = `bold ${fontSize}px "Noto Sans SC", sans-serif`;
+            const textWidth = ctx.measureText(text).width;
+            const bubbleWidth = textWidth + padding * 2;
+            const bubbleHeight = fontSize + padding * 2;
+            const bubbleX = x - bubbleWidth / 2;
+            const bubbleY = y - bubbleHeight - 20;
+            ctx.beginPath();
+            ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 10);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(x - 10, bubbleY + bubbleHeight);
+            ctx.lineTo(x, bubbleY + bubbleHeight + 15);
+            ctx.lineTo(x + 10, bubbleY + bubbleHeight);
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.beginPath();
+            ctx.moveTo(x - 10, bubbleY + bubbleHeight);
+            ctx.lineTo(x, bubbleY + bubbleHeight + 15);
+            ctx.lineTo(x + 10, bubbleY + bubbleHeight);
+            ctx.stroke();
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, bubbleY + bubbleHeight / 2);
+        }
+
+        class DustParticle {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = -Math.random() * 2;
+                this.life = 30 + Math.random() * 20;
+                this.maxLife = this.life;
+                this.size = PIXEL * (0.5 + Math.random() * 0.5);
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.vy += 0.05; this.life--; }
+            draw() {
+                const alpha = this.life / this.maxLife * 0.5;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = '#c9a66b';
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color, vx, vy, life = 100) {
+                this.x = x; this.y = y; this.color = color;
+                this.vx = vx; this.vy = vy; this.life = life;
+                this.maxLife = life; this.gravity = 0.03;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.vy += this.gravity; this.life--; }
+            draw() {
+                ctx.globalAlpha = this.life / this.maxLife;
+                drawPixel(this.x, this.y, this.color, PIXEL);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        class TextParticle {
+            constructor(targetX, targetY, color, delay, startX, startY) {
+                this.targetX = targetX; this.targetY = targetY;
+                this.x = startX; this.y = startY;
+                this.color = color; this.delay = delay;
+                this.arrived = false; this.twinkle = Math.random() * Math.PI * 2;
+                this.size = PIXEL;
+            }
+            update() {
+                if (this.delay > 0) { this.delay--; return; }
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                this.x += dx * 0.1; this.y += dy * 0.1;
+                if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+                    this.arrived = true; this.x = this.targetX; this.y = this.targetY;
+                }
+                this.twinkle += 0.1;
+            }
+            draw() {
+                if (this.delay > 0) return;
+                ctx.globalAlpha = this.arrived ? 0.7 + Math.sin(this.twinkle) * 0.3 : 1;
+                drawPixel(this.x, this.y, this.color, this.size);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function getTextPixels(text, fontSize, maxWidth, maxHeight) {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = maxWidth; tempCanvas.height = maxHeight;
+            tempCtx.fillStyle = '#000';
+            tempCtx.fillRect(0, 0, maxWidth, maxHeight);
+            tempCtx.fillStyle = '#fff';
+            tempCtx.font = `bold ${fontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif`;
+            tempCtx.textAlign = 'center';
+            tempCtx.textBaseline = 'middle';
+            tempCtx.fillText(text, maxWidth / 2, maxHeight / 2);
+            const imageData = tempCtx.getImageData(0, 0, maxWidth, maxHeight);
+            const pixels = [];
+            const step = Math.max(3, Math.floor(fontSize / 35));
+            for (let y = 0; y < maxHeight; y += step) {
+                for (let x = 0; x < maxWidth; x += step) {
+                    const i = (y * maxWidth + x) * 4;
+                    if (imageData.data[i] > 100) pixels.push({ x, y });
+                }
+            }
+            return pixels;
+        }
+
+        function createTextParticles() {
+            textParticles = [];
+            const text = '新年快乐！';
+            const targetWidth = canvas.width * 0.85;
+            const fontSize = Math.min(targetWidth / 5, canvas.height / 3);
+            const textWidth = targetWidth;
+            const textHeight = fontSize * 1.4;
+            const pixels = getTextPixels(text, fontSize, textWidth, textHeight);
+            if (pixels.length === 0) { createFallbackTextParticles(); return; }
+            const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff9ff3'];
+            const offsetX = (canvas.width - textWidth) / 2;
+            const offsetY = (canvas.height - textHeight) / 3;
+            pixels.forEach((pixel, i) => {
+                const color = colors[Math.floor((pixel.x / textWidth) * 5) % colors.length];
+                const tp = new TextParticle(offsetX + pixel.x, offsetY + pixel.y, color, Math.floor(i / 30),
+                    canvas.width / 2 + (Math.random() - 0.5) * 400, canvas.height / 2 + (Math.random() - 0.5) * 200);
+                tp.size = PIXEL;
+                textParticles.push(tp);
+            });
+        }
+
+        function createFallbackTextParticles() {
+            const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff9ff3'];
+            const centerX = canvas.width / 2, centerY = canvas.height / 3;
+            for (let i = 0; i < 500; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * 200;
+                const tp = new TextParticle(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius * 0.5,
+                    colors[Math.floor(Math.random() * colors.length)], Math.floor(i / 10),
+                    centerX + (Math.random() - 0.5) * 300, centerY + (Math.random() - 0.5) * 150);
+                tp.size = PIXEL;
+                textParticles.push(tp);
+            }
+        }
+
+        // 点击烟花类（用户发射，显示文字）
+        class ClickFirework {
+            constructor(x, y, blessing, startX, startY) {
+                this.targetX = x; this.targetY = y; this.blessing = blessing;
+                this.x = startX; this.y = startY;
+                this.state = 'flying';
+                this.particles = []; this.textParticles = []; this.timer = 0;
+                this.color = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff9ff3'][Math.floor(Math.random() * 5)];
+            }
+            update() {
+                this.timer++;
+                if (this.state === 'flying') {
+                    const dx = this.targetX - this.x;
+                    const dy = this.targetY - this.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 15) {
+                        this.state = 'explode';
+                        this.timer = 0;
+                        const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff9ff3', '#fff'];
+                        for (let i = 0; i < 60; i++) {
+                            const angle = (Math.PI * 2 * i) / 60;
+                            const speed = 2 + Math.random() * 3;
+                            this.particles.push(new Particle(this.x, this.y, colors[Math.floor(Math.random() * colors.length)],
+                                Math.cos(angle) * speed, Math.sin(angle) * speed, 50));
+                        }
+                    } else {
+                        this.x += dx / dist * 12;
+                        this.y += dy / dist * 12;
+                    }
+                } else if (this.state === 'explode') {
+                    this.particles = this.particles.filter(p => p.life > 0);
+                    this.particles.forEach(p => p.update());
+                    if (this.timer > 40) {
+                        if (this.textParticles.length === 0) this.createTextParticles();
+                        this.state = 'text'; this.timer = 0;
+                    }
+                } else if (this.state === 'text') {
+                    this.textParticles.forEach(p => p.update());
+                }
+            }
+            createTextParticles() {
+                const fontSize = Math.min(60, canvas.width / 10);
+                const textWidth = fontSize * 4.5, textHeight = fontSize * 1.4;
+                const pixels = getTextPixels(this.blessing, fontSize, textWidth, textHeight);
+                const offsetX = this.targetX - textWidth / 2, offsetY = this.targetY - textHeight / 2;
+                if (pixels.length === 0) {
+                    for (let i = 0; i < 100; i++) {
+                        const angle = Math.random() * Math.PI * 2, radius = Math.random() * 80;
+                        const tp = new TextParticle(this.targetX + Math.cos(angle) * radius, this.targetY + Math.sin(angle) * radius * 0.5,
+                            this.color, Math.floor(i / 10), this.targetX, this.targetY);
+                        tp.size = PIXEL * 0.8; this.textParticles.push(tp);
+                    }
+                    return;
+                }
+                pixels.forEach((pixel, i) => {
+                    const tp = new TextParticle(offsetX + pixel.x, offsetY + pixel.y, this.color, Math.floor(i / 20),
+                        this.targetX + (Math.random() - 0.5) * 100, this.targetY + (Math.random() - 0.5) * 100);
+                    tp.size = PIXEL * 0.8; this.textParticles.push(tp);
+                });
+            }
+            draw() {
+                if (this.state === 'flying') {
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, PIXEL * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    // 尾迹
+                    for (let i = 1; i <= 5; i++) {
+                        ctx.globalAlpha = 1 - i * 0.2;
+                        ctx.beginPath();
+                        ctx.arc(this.x - (this.targetX - this.x) / 10 * i, this.y - (this.targetY - this.y) / 10 * i, PIXEL * (2 - i * 0.3), 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.globalAlpha = 1;
+                } else if (this.state === 'explode' || this.state === 'text') {
+                    this.particles.forEach(p => p.draw());
+                    this.textParticles.forEach(p => p.draw());
+                }
+            }
+            isDone() { return this.state === 'text' && this.timer > 180; }
+        }
+
+        // 装饰烟花类（小甘发射，显示图案）
+        class DecorationFirework {
+            constructor(x, y, type, startX, startY) {
+                this.targetX = x; this.targetY = y; this.type = type;
+                this.x = startX; this.y = startY;
+                this.state = 'flying';
+                this.particles = []; this.shapeParticles = []; this.timer = 0;
+                this.color = ['#ff69b4', '#87ceeb', '#98fb98', '#dda0dd', '#f0e68c'][Math.floor(Math.random() * 5)];
+            }
+            update() {
+                this.timer++;
+                if (this.state === 'flying') {
+                    const dx = this.targetX - this.x;
+                    const dy = this.targetY - this.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 15) {
+                        this.state = 'explode';
+                        this.timer = 0;
+                        for (let i = 0; i < 40; i++) {
+                            const angle = (Math.PI * 2 * i) / 40;
+                            const speed = 1.5 + Math.random() * 2;
+                            this.particles.push(new Particle(this.x, this.y, this.color,
+                                Math.cos(angle) * speed, Math.sin(angle) * speed, 40));
+                        }
+                    } else {
+                        this.x += dx / dist * 10;
+                        this.y += dy / dist * 10;
+                    }
+                } else if (this.state === 'explode') {
+                    this.particles = this.particles.filter(p => p.life > 0);
+                    this.particles.forEach(p => p.update());
+                    if (this.timer > 30) {
+                        if (this.shapeParticles.length === 0) this.createShapeParticles();
+                        this.state = 'shape'; this.timer = 0;
+                    }
+                } else if (this.state === 'shape') {
+                    this.shapeParticles.forEach(p => p.update());
+                }
+            }
+            createShapeParticles() {
+                const shape = this.getShapePoints();
+                const offsetX = this.targetX, offsetY = this.targetY;
+                shape.forEach((point, i) => {
+                    const tp = new TextParticle(offsetX + point.x, offsetY + point.y, this.color, Math.floor(i / 5),
+                        this.targetX + (Math.random() - 0.5) * 50, this.targetY + (Math.random() - 0.5) * 50);
+                    tp.size = PIXEL * 0.7;
+                    this.shapeParticles.push(tp);
+                });
+            }
+            getShapePoints() {
+                const points = [];
+                const size = 30;
+                if (this.type === 'flower') {
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+                        for (let r = 5; r < size; r += 4) {
+                            points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+                        }
+                    }
+                    for (let r = 0; r < 10; r += 3) {
+                        for (let a = 0; a < Math.PI * 2; a += 0.5) {
+                            points.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+                        }
+                    }
+                } else if (this.type === 'cloud') {
+                    for (let i = 0; i < 3; i++) {
+                        const cx = (i - 1) * 20;
+                        for (let a = 0; a < Math.PI * 2; a += 0.3) {
+                            const r = 15 + Math.random() * 5;
+                            points.push({ x: cx + Math.cos(a) * r, y: Math.sin(a) * r * 0.6 });
+                        }
+                    }
+                } else if (this.type === 'thumb') {
+                    for (let y = -size; y < size/2; y += 4) {
+                        const width = y < -size/2 ? 8 : 15;
+                        for (let x = -width; x < width; x += 4) {
+                            points.push({ x, y });
+                        }
+                    }
+                    for (let x = -20; x < 20; x += 4) {
+                        for (let y = size/2; y < size; y += 4) {
+                            points.push({ x, y });
+                        }
+                    }
+                } else if (this.type === 'heart') {
+                    for (let t = 0; t < Math.PI * 2; t += 0.1) {
+                        const x = 16 * Math.pow(Math.sin(t), 3);
+                        const y = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+                        points.push({ x: x * 1.5, y: y * 1.5 });
+                    }
+                } else if (this.type === 'star') {
+                    for (let i = 0; i < 5; i++) {
+                        const outerAngle = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+                        const innerAngle = outerAngle + Math.PI / 5;
+                        points.push({ x: Math.cos(outerAngle) * size, y: Math.sin(outerAngle) * size });
+                        points.push({ x: Math.cos(innerAngle) * size * 0.4, y: Math.sin(innerAngle) * size * 0.4 });
+                    }
+                    for (let i = 0; i < points.length; i++) {
+                        const p1 = points[i], p2 = points[(i + 1) % points.length];
+                        for (let t = 0; t < 1; t += 0.2) {
+                            points.push({ x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t });
+                        }
+                    }
+                }
+                return points;
+            }
+            draw() {
+                if (this.state === 'flying') {
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, PIXEL * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.state === 'explode' || this.state === 'shape') {
+                    this.particles.forEach(p => p.draw());
+                    this.shapeParticles.forEach(p => p.draw());
+                }
+            }
+            isDone() { return this.state === 'shape' && this.timer > 150; }
+        }
+
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#0a0a2e');
+            gradient.addColorStop(0.5, '#1a1a4e');
+            gradient.addColorStop(1, '#2d1b4e');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            backgroundStars.forEach(star => {
+                star.twinkle += 0.02;
+                ctx.globalAlpha = 0.5 + Math.sin(star.twinkle) * 0.5;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+        }
+
+        function shootFirework(startX, startY) { fireworkX = startX; fireworkY = startY; state = 'shoot'; }
+
+        function explodeFirework() {
+            const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#ff9ff3', '#fff'];
+            for (let i = 0; i < 100; i++) {
+                const angle = (Math.PI * 2 * i) / 100, speed = 3 + Math.random() * 4;
+                particles.push(new Particle(fireworkX, fireworkY, colors[Math.floor(Math.random() * colors.length)],
+                    Math.cos(angle) * speed, Math.sin(angle) * speed, 70));
+            }
+            state = 'explode'; stateTimer = 0;
+        }
+
+        // 发射烟花的通用函数
+        function launchFirework(x, y) {
+            if (state !== 'playTogether') return;
+            if (y > canvas.height - 100) return;
+
+            // 用户发射烟花（文字）
+            const blessing = blessings[Math.floor(Math.random() * blessings.length)];
+            clickFireworks.push(new ClickFirework(x, y, blessing, userCharX + 50, userCharY - 80));
+
+            // 小甘发射装饰烟花
+            const decoration = decorations[Math.floor(Math.random() * decorations.length)];
+            const offsetX = (Math.random() - 0.5) * 100;
+            const offsetY = (Math.random() - 0.5) * 50;
+            decorationFireworks.push(new DecorationFirework(x + offsetX, y + offsetY, decoration, ganCharX + 50, ganCharY - 80));
+        }
+
+        // 点击事件（桌面端）
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+            launchFirework(x, y);
+        });
+
+        // 触摸事件（移动端）
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left, y = touch.clientY - rect.top;
+            launchFirework(x, y);
+        }, { passive: false });
+
+        let wandPos = { wandX: 0, wandY: 0 };
+
+        function animate() {
+            drawBackground();
+            const groundY = canvas.height - 50;
+            stateTimer++;
+
+            dustParticles = dustParticles.filter(p => p.life > 0);
+            dustParticles.forEach(p => { p.update(); p.draw(); });
+
+            if (state === 'riding') {
+                const targetX = canvas.width / 2;
+                riderX += 1.5; // 放慢小甘入场速度
+                riderScale = Math.min(1, 0.5 + (riderX / targetX) * 0.5);
+                horseFrame += 0.15; // 放慢马蹄动画（从0.3降到0.15）
+                const bounceY = Math.abs(Math.sin(horseFrame)) * 5 * riderScale;
+                const horseBaseY = groundY - 10 * PIXEL * riderScale - bounceY;
+                drawHorse(riderX, horseBaseY, horseFrame, riderScale);
+                drawRider(riderX + 3 * PIXEL * riderScale, horseBaseY - 12 * PIXEL * riderScale, riderScale);
+                if (stateTimer % 10 === 0) { // 减少扬尘频率
+                    dustParticles.push(new DustParticle(riderX - 10, groundY - 5));
+                    dustParticles.push(new DustParticle(riderX + 5, groundY - 5));
+                }
+                if (riderX >= targetX - 50) { state = 'speaking'; stateTimer = 0; }
+            }
+            else if (state === 'speaking') {
+                const horseBaseY = groundY - 10 * PIXEL;
+                horseFrame += 0.05;
+                drawHorse(riderX, horseBaseY, horseFrame, 1);
+                drawRider(riderX + 3 * PIXEL, horseBaseY - 12 * PIXEL, 1);
+                drawSpeechBubble(riderX + 20 * PIXEL, horseBaseY - 35 * PIXEL, '新年将至，小甘祝福你！');
+                if (stateTimer > 180) { state = 'dismount'; stateTimer = 0; }
+            }
+            else if (state === 'dismount') {
+                const horseBaseY = groundY - 10 * PIXEL;
+                horseFrame += 0.2;
+                const horseExitX = riderX + stateTimer * 3;
+                if (horseExitX < canvas.width + 100) {
+                    drawHorse(horseExitX, horseBaseY, horseFrame, 1);
+                    if (stateTimer % 8 === 0) dustParticles.push(new DustParticle(horseExitX - 10, groundY - 5));
+                }
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                wandPos = drawCharacter(ganCharX, ganCharY, 0);
+                if (stateTimer > 80) { state = 'idle'; stateTimer = 0; }
+            }
+            else if (state === 'idle') {
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                wandPos = drawCharacter(ganCharX, ganCharY, 0);
+                if (stateTimer > 40) { state = 'wave'; stateTimer = 0; waveFrame = 0; }
+            }
+            else if (state === 'wave') {
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                waveFrame += 0.15;
+                wandPos = drawCharacter(ganCharX, ganCharY, waveFrame);
+                if (stateTimer > 60) shootFirework(wandPos.wandX, wandPos.wandY);
+            }
+            else if (state === 'shoot') {
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                wandPos = drawCharacter(ganCharX, ganCharY, Math.PI / 4);
+                fireworkY -= 10;
+                ctx.fillStyle = '#ffd700';
+                ctx.fillRect(fireworkX - PIXEL, fireworkY, PIXEL * 2, PIXEL * 4);
+                for (let i = 0; i < 5; i++) {
+                    ctx.globalAlpha = 1 - i * 0.2;
+                    ctx.fillStyle = '#ff6b6b';
+                    ctx.fillRect(fireworkX - PIXEL/2 + (Math.random() - 0.5) * PIXEL * 2, fireworkY + PIXEL * 4 + i * PIXEL * 2, PIXEL, PIXEL * 2);
+                }
+                ctx.globalAlpha = 1;
+                if (fireworkY < canvas.height / 3) explodeFirework();
+            }
+            else if (state === 'explode') {
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                wandPos = drawCharacter(ganCharX, ganCharY, 0);
+                particles = particles.filter(p => p.life > 0);
+                particles.forEach(p => { p.update(); p.draw(); });
+                if (particles.length === 0 || stateTimer > 100) {
+                    if (textParticles.length === 0) createTextParticles();
+                    state = 'text'; stateTimer = 0;
+                }
+            }
+            else if (state === 'text') {
+                ganCharX = riderX + 20;
+                ganCharY = groundY;
+                wandPos = drawCharacter(ganCharX, ganCharY, Math.sin(Date.now() / 500) * 0.3);
+                textParticles.forEach(p => { p.update(); p.draw(); });
+                if (stateTimer % 90 === 0 && stateTimer < 400) {
+                    const x = Math.random() * canvas.width;
+                    const y = canvas.height / 5 + Math.random() * canvas.height / 4;
+                    const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff'];
+                    for (let i = 0; i < 40; i++) {
+                        const angle = (Math.PI * 2 * i) / 40, speed = 2 + Math.random() * 2;
+                        particles.push(new Particle(x, y, colors[Math.floor(Math.random() * colors.length)], Math.cos(angle) * speed, Math.sin(angle) * speed, 50));
+                    }
+                }
+                particles = particles.filter(p => p.life > 0);
+                particles.forEach(p => { p.update(); p.draw(); });
+                if (stateTimer > 120) btnContainer.classList.add('show');
+            }
+            else if (state === 'userRiding') {
+                // 小甘站在左侧等待
+                ganCharX = canvas.width / 2 - 80;
+                ganCharY = groundY;
+                drawCharacter(ganCharX, ganCharY, Math.sin(Date.now() / 500) * 0.2);
+
+                // 用户举着白马从右侧跑过来（放慢速度，让用户注意到举马的滑稽效果）
+                const targetX = canvas.width / 2 + 20;
+                userRiderX -= 1.5; // 跑步速度
+                userScale = Math.min(1, 0.5 + ((canvas.width - userRiderX) / (canvas.width - targetX)) * 0.5);
+                userHorseFrame += 0.15; // 跑步频率（进一步放慢）
+                const bounceY = Math.abs(Math.sin(userHorseFrame * 2)) * 4 * userScale; // 跑步颠簸
+                drawUserRunningWithHorse(userRiderX, groundY - bounceY, userHorseFrame, userScale);
+                // 跑步扬尘
+                if (stateTimer % 12 === 0) {
+                    dustParticles.push(new DustParticle(userRiderX + 20 * userScale, groundY - 5));
+                }
+                if (userRiderX <= targetX) { state = 'userSpeaking'; stateTimer = 0; }
+            }
+            else if (state === 'userSpeaking') {
+                // 小甘站在旁边说话
+                ganCharX = canvas.width / 2 - 80;
+                ganCharY = groundY;
+                drawCharacter(ganCharX, ganCharY, Math.sin(Date.now() / 500) * 0.2);
+                drawSpeechBubble(ganCharX + 30, ganCharY - 120, '不放白不放，反正是免费的！');
+
+                // 用户站立（把马放下了）
+                userCharX = canvas.width / 2 + 40;
+                userCharY = groundY;
+                drawUserCharacter(userCharX, userCharY);
+
+                // 白马被放下后跑走
+                userHorseFrame += 0.3;
+                const horseExitX = canvas.width / 2 + 60 + stateTimer * 3;
+                if (horseExitX < canvas.width + 100) {
+                    const horseBaseY = groundY - 10 * PIXEL;
+                    const horseBounce = Math.abs(Math.sin(userHorseFrame)) * 5;
+                    drawWhiteHorse(horseExitX, horseBaseY - horseBounce, userHorseFrame, 1, true);
+                    // 马跑走的扬尘
+                    if (stateTimer % 6 === 0 && horseExitX < canvas.width) {
+                        dustParticles.push(new DustParticle(horseExitX - 20, groundY - 5));
+                    }
+                }
+
+                if (stateTimer > 180) { state = 'playTogether'; stateTimer = 0; hintEl.textContent = '点击屏幕任意位置，快来燃放祝福烟花！'; hintEl.classList.add('show'); }
+            }
+            else if (state === 'playTogether') {
+                // 两人并排站立
+                ganCharX = canvas.width / 2 - 80;
+                ganCharY = groundY;
+                drawCharacter(ganCharX, ganCharY, Math.sin(Date.now() / 500) * 0.3);
+
+                userCharX = canvas.width / 2 + 40;
+                userCharY = groundY;
+                drawUserCharacter(userCharX, userCharY);
+
+                // 更新烟花
+                clickFireworks = clickFireworks.filter(f => !f.isDone());
+                clickFireworks.forEach(f => { f.update(); f.draw(); });
+
+                decorationFireworks = decorationFireworks.filter(f => !f.isDone());
+                decorationFireworks.forEach(f => { f.update(); f.draw(); });
+
+                // 背景自动烟花
+                if (stateTimer % 120 === 0) {
+                    const x = Math.random() * canvas.width;
+                    const y = canvas.height / 5 + Math.random() * canvas.height / 4;
+                    const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff'];
+                    for (let i = 0; i < 30; i++) {
+                        const angle = (Math.PI * 2 * i) / 30, speed = 2 + Math.random() * 2;
+                        particles.push(new Particle(x, y, colors[Math.floor(Math.random() * colors.length)], Math.cos(angle) * speed, Math.sin(angle) * speed, 40));
+                    }
+                }
+
+                particles = particles.filter(p => p.life > 0);
+                particles.forEach(p => { p.update(); p.draw(); });
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 和小甘一起放烟花
+        playTogetherBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            btnContainer.classList.remove('show');
+            hintEl.classList.remove('show');
+            textParticles = [];
+            particles = [];
+            state = 'userRiding';
+            stateTimer = 0;
+            userRiderX = canvas.width + 100;
+            userScale = 0.5;
+            userHorseFrame = 0;
+        });
+
+        // 再看一次
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            state = 'riding'; stateTimer = 0;
+            particles = []; textParticles = []; clickFireworks = []; dustParticles = []; decorationFireworks = [];
+            riderX = -100; riderScale = 0.5; horseFrame = 0;
+            btnContainer.classList.remove('show');
+            hintEl.classList.remove('show');
+        });
+
+        document.fonts.ready.then(() => { animate(); });
+    </script>
+</body>
+</html>
